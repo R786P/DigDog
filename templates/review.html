@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Review eBook{% endblock %}
+{% block content %}
+<h2>Step 3: Review Karo — Har Chapter Customize Karo</h2>
+
+{% for ch in draft.chapters %}
+<div class="card">
+  <h3 style="color:{{ palette.hex }};">{{ loop.index }}. {{ ch.title }}</h3>
+
+  <img src="{{ ch.image_url }}" alt="chapter image">
+
+  <form class="inline-form" action="{{ url_for('regenerate_image', idx=loop.index0) }}" method="post">
+    <button type="submit" class="btn-secondary">🔁 Regenerate Image</button>
+  </form>
+
+  <form class="inline-form" action="{{ url_for('update_prompt', idx=loop.index0) }}" method="post">
+    <input class="small-input" type="text" name="image_prompt" value="{{ ch.image_prompt }}">
+    <button type="submit" class="btn-secondary">Update Prompt</button>
+  </form>
+
+  <form class="inline-form" action="{{ url_for('upload_image', idx=loop.index0) }}" method="post" enctype="multipart/form-data">
+    <input type="file" name="image_file" accept="image/*">
+    <button type="submit" class="btn-secondary">⬆ Upload Apni Image</button>
+  </form>
+
+  <form action="{{ url_for('update_text', idx=loop.index0) }}" method="post" style="margin-top:14px;">
+    <label>Chapter Text (edit karke save karo)</label>
+    <textarea name="content" style="min-height:160px;">{{ ch.content }}</textarea>
+    <button type="submit" class="btn-secondary">💾 Save Text</button>
+  </form>
+</div>
+{% endfor %}
+
+<a class="btn" href="{{ url_for('download') }}">⬇ Download Final PDF (No Watermark)</a>
+{% endblock %}
