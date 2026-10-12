@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}PillaArt{% endblock %}
+{% block content %}
+
+<div class="chat-wrap">
+  <h2 class="chat-heading">Aaj kaunsi eBook banani hai?</h2>
+  <p class="chat-sub">Topic likho aur generate karo. Zyada control chahiye to <strong>+</strong> dabao.</p>
+
+  <form action="{{ url_for('create') }}" method="post" id="composer-form">
+
+    <!-- Options panel: hidden by default, opens via the + button -->
+    <div id="options-panel" class="options-panel">
+      <div>
+        <label>Language</label>
+        <select name="language" id="opt-language">
+          {% for key, val in languages.items() %}
+            <option value="{{ key }}" {% if key=='hinglish' %}selected{% endif %}>{{ val }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="grid-2">
+        <div>
+          <label>Template</label>
+          <select name="template" id="opt-template">
+            <option value="minimal">Minimal</option>
+            <option value="magazine">Magazine Style</option>
+            <option value="storybook">Storybook</option>
+            <option value="coloring">Coloring Book</option>
+            <option value="report">Professional Report</option>
+          </select>
+        </div>
+        <div>
+          <label>Color Palette</label>
+          <select name="palette" id="opt-palette">
+            {% for key, val in palettes.items() %}
+              <option value="{{ key }}">{{ val.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <label>Image Style</label>
+      <select name="image_style" id="opt-image_style">
+        {% for key, val in styles.items() %}
+          <option value="{{ key }}">{{ key | capitalize }} — {{ val }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- ChatGPT-style composer bar -->
+    <div class="composer">
+      <button type="button" id="plus-btn" class="plus-btn" title="More options">
+        +
+        <span id="opt-dot" class="opt-dot" style="display:none;"></span>
+      </button>
+
+      <input
+        type="text"
+        name="topic"
+        id="topic-input"
+        class="composer-input"
+        placeholder="e.g. Make Money Online for Beginners"
+        required
+        autocomplete="off">
+
+      <button type="submit" class="send-btn" title="Generate">&#10148;</button>
+    </div>
+  </form>
+</div>
+
+<script>
+  const plusBtn = document.getElementById("plus-btn");
+  const panel = document.getElementById("options-panel");
+  const dot = document.getElementById("opt-dot");
+
+  plusBtn.addEventListener("click", () => {
+    panel.classList.toggle("open");
+  });
+
+  // Show a blinking dot on the + icon whenever a non-default option is chosen,
+  // so the user knows customization is active without opening the panel.
+  const defaults = { language: "hinglish", template: "minimal", palette: "warm", image_style: "flat" };
+  const watched = ["opt-language", "opt-template", "opt-palette", "opt-image_style"];
+
+  function refreshDot() {
+    const changed = watched.some(id => {
+      const el = document.getElementById(id);
+      const key = id.replace("opt-", "");
+      return el.value !== defaults[key];
+    });
+    dot.style.display = changed ? "block" : "none";
+  }
+  watched.forEach(id => document.getElementById(id).addEventListener("change", refreshDot));
+</script>
+
+{% endblock %}
