@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}PillaArt{% endblock %}
+{% block content %}
+
+<div id="chat-area" class="chat-area">
+  <div class="empty-state" id="empty-state">
+    <img src="{{ url_for('static', filename='icons/icon-192.png') }}" class="empty-icon" alt="PillaArt">
+    <p>Topic likho niche aur generate karo — tumhari eBook PDF yahin ban jayegi.</p>
+  </div>
+</div>
+
+<form id="composer-form" autocomplete="off">
+  <div id="options-panel" class="options-panel">
+    <div>
+      <label>Language</label>
+      <select name="language" id="opt-language">
+        {% for key, val in languages.items() %}
+          <option value="{{ key }}" {% if key=='hinglish' %}selected{% endif %}>{{ val }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="grid-2">
+      <div>
+        <label>Template</label>
+        <select name="template" id="opt-template">
+          <option value="minimal">Minimal</option>
+          <option value="magazine">Magazine Style</option>
+          <option value="storybook">Storybook</option>
+          <option value="coloring">Coloring Book</option>
+          <option value="report">Professional Report</option>
+        </select>
+      </div>
+      <div>
+        <label>Color Palette</label>
+        <select name="palette" id="opt-palette">
+          {% for key, val in palettes.items() %}
+            <option value="{{ key }}">{{ val.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <label>Image Style</label>
+    <select name="image_style" id="opt-image_style">
+      {% for key, val in styles.items() %}
+        <option value="{{ key }}">{{ key | capitalize }} — {{ val }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <input type="hidden" name="image_style_locked" id="image_style_locked" value="0">
+  <!-- set to 1 only when the user manually picks an Image Style — otherwise the
+       backend is free to auto-detect "coloring book" intent from the topic text -->
+
+
+  <div class="composer composer-fixed">
+    <button type="button" id="plus-btn" class="plus-btn" title="More options">
+      +
+      <span id="opt-dot" class="opt-dot" style="display:none;"></span>
+    </button>
+    <input
+      type="text"
+      name="topic"
+      id="topic-input"
+      class="composer-input"
+      placeholder="e.g. Make Money Online for Beginners"
+      required>
+    <button type="submit" id="send-btn" class="send-btn" title="Generate">&#10148;</button>
+  </div>
+</form>
+
+<script>
+  const plusBtn = document.getElementById("plus-btn");
+  const panel = document.getElementById("options-panel");
+  const dot = document.getElementById("opt-dot");
+  const chatArea = document.getElementById("chat-area");
+  const emptyState = document.getElementById("empty-state");
+  const form = document.getElementById("composer-form");
+  const topicInput = document.getElementById("topic-input");
+  const sendBtn = document.getElementById("send-btn");
+
+  const dock = document.getElementById("composer-form");
+  function fitChatPadding() {
+    chatArea.style.paddingBottom = (dock.offsetHeight + 20) + "px";
+  }
+  window.addEventListener("load", fitChatPadding);
+  window.addEventListener("resize", fitChatPadding);
+
+  plusBtn.addEventListener("click", () => {
+    panel.classList.toggle("open");
+    setTimeout(fitChatPadding, 260); // after the panel's open transition finishes
+  });
+
+  const defaults = { language: "hinglish", template: "minimal", palette: "warm", image_style: "flat" };
+  const watched = ["opt-language", "opt-template", "opt-palette", "opt-image_style"];
+  function refreshDot() {
+    const changed = watched.some(id => {
+      const el = document.getElementById(id);
+      const key = id.replace("opt-", "");
+      return el.value !== defaults[key];
+    });
+    dot.style.display = changed ? "block" : "none";
+  }
+  watched.forEach(id => document.getElementById(id).addEventListener("change", refreshDot));
+
+  // If the user manually picks an Image Style, respect it exactly — don't let
+  // the backend's "coloring book" auto-detection override their explicit choice.
+  document.getElementById("opt-image_style").addEventListener("change", () => {
+    document.getElementById("image_style_locked").value = "1";
+  });
+
+  function addBubble(html, cls) {
+    const div = document.createElement("div");
+    div.className = "msg " + cls;
+    div.innerHTML = html;
+    chatArea.appendChild(div);
+    chatArea.scrollTop = chatArea.scrollHeight;
+    return div;
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const topic = topicInput.value.trim();
+    if (!topic) return;
+
+    if (emptyState) emptyState.style.display = "none";
+    addBubble(`<strong>${topic}</strong>`, "msg-user");
+    const loading = addBubble(
+      `⏳ Tumhari eBook ban rahi hai — chapters, content aur images generate ho rahe hain... (30-60 sec lag sakte hain)`,
+      "msg-bot msg-loading"
+    );
+
+    const fd = new FormData(form); // collected BEFORE disabling — disabled fields are left out of FormData
+
+    sendBtn.disabled = true;
+    plusBtn.disabled = true;
+    topicInput.readOnly = true; // readOnly (not disabled) keeps the field's value submittable
+
+    try {
+      const res = await fetch("{{ url_for('generate') }}", { method: "POST", body: fd });
+      const data = await res.json();
+
+      loading.remove();
+
+      if (data.status === "ok") {
+        addBubble(
+          `✅ <strong>${data.title}</strong> ready hai! (${data.chapters} chapters)<br>
+           <a class="btn" href="${data.download_url}" download target="_blank">⬇ Download PDF</a>
+           <a class="btn btn-secondary" href="${data.edit_url}" target="_blank">✏️ Customize</a>`,
+          "msg-bot"
+        );
+      } else {
+        addBubble(`❌ Error: ${data.message || "Kuch gadbad ho gayi, dobara try karo."}`, "msg-bot msg-error");
+      }
+    } catch (err) {
+      loading.remove();
+      addBubble(`❌ Network error: ${err.message}`, "msg-bot msg-error");
+    }
+
+    sendBtn.disabled = false;
+    plusBtn.disabled = false;
+    topicInput.readOnly = false;
+    topicInput.value = "";
+    panel.classList.remove("open");
+  });
+</script>
+{% endblock %}
