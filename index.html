@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}New eBook{% endblock %}
+{% block content %}
+<h2>Step 1: Apni eBook Setup Karo</h2>
+<form action="{{ url_for('create') }}" method="post">
+  <label>Topic / Title</label>
+  <input type="text" name="topic" placeholder="e.g. Make Money Online for Beginners" required>
+
+  <label>Language</label>
+  <select name="language">
+    {% for key, val in languages.items() %}
+      <option value="{{ key }}" {% if key=='hinglish' %}selected{% endif %}>{{ val }}</option>
+    {% endfor %}
+  </select>
+
+  <div class="grid-2">
+    <div>
+      <label>Template</label>
+      <select name="template">
+        <option value="minimal">Minimal</option>
+        <option value="magazine">Magazine Style</option>
+        <option value="storybook">Storybook</option>
+        <option value="coloring">Coloring Book</option>
+        <option value="report">Professional Report</option>
+      </select>
+    </div>
+    <div>
+      <label>Color Palette</label>
+      <select name="palette">
+        {% for key, val in palettes.items() %}
+          <option value="{{ key }}">{{ val.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <label>Image Style</label>
+  <select name="image_style">
+    {% for key, val in styles.items() %}
+      <option value="{{ key }}">{{ key | capitalize }} — {{ val }}</option>
+    {% endfor %}
+  </select>
+
+  <button type="submit">Generate Outline →</button>
+</form>
+{% endblock %}
