@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}PillaArt{% endblock %}</title>
+
+<link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+<meta name="theme-color" content="#7c3aed">
+<link rel="icon" href="{{ url_for('static', filename='icons/icon-192.png') }}">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="PillaArt">
+
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h1 class="brand"><img src="{{ url_for('static', filename='icons/icon-192.png') }}" alt="PillaArt" class="brand-icon"> PillaArt</h1>
+      <nav>
+        <a href="{{ url_for('index') }}">➕ New eBook</a>
+        <a href="#" id="clear-history-link">🗑 Clear History</a>
+      </nav>
+      <button id="install-btn" class="btn install-btn" style="display:none;">⬇ Install App</button>
+      <p class="sidebar-foot">No watermark · Full control</p>
+    </aside>
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+<script>
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js", { scope: "/" });
+  }
+
+  let deferredPrompt;
+  const installBtn = document.getElementById("install-btn");
+
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    installBtn.style.display = "inline-block";
+  });
+
+  installBtn && installBtn.addEventListener("click", async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    installBtn.style.display = "none";
+  });
+
+  window.addEventListener("appinstalled", () => {
+    installBtn.style.display = "none";
+  });
+
+  const clearHistoryLink = document.getElementById("clear-history-link");
+  if (clearHistoryLink) {
+    clearHistoryLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (confirm("Saari purani eBook history delete karni hai? (PDFs delete nahi hongi, sirf list)")) {
+        localStorage.removeItem("pillaart_history");
+        window.location.href = "/";
+      }
+    });
+  }
+</script>
+</body>
+</html>
