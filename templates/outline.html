@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Edit Outline{% endblock %}
+{% block content %}
+<h2>Step 2: Outline Edit Karo</h2>
+<p style="color:#999;">"{{ draft.topic }}" ke liye AI ne ye chapters suggest kiye hain. Jo chahiye badlo, add/remove karo (ek line = ek chapter, format: <code>Title: Description</code>).</p>
+
+<form action="{{ url_for('outline') }}" method="post">
+  <label>Chapter Outline</label>
+  <textarea name="outline_text" style="min-height:260px;">{{ outline_text }}</textarea>
+  <button type="submit">Generate Content + Images →</button>
+</form>
+<p style="color:#777; font-size:0.85rem;">Agla step thoda time lega (har chapter ka content + image prompt generate ho raha hai).</p>
+{% endblock %}
