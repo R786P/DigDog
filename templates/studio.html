@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Customize — {{ draft.topic }}{% endblock %}
+{% block content %}
+
+<h2>✏️ Customize Studio</h2>
+<p style="color:#999;">Text, images, colors, template aur watermark — sab yahin edit karo. Save karte hi PDF dobara ban jayegi.</p>
+
+<a class="btn btn-secondary" id="current-pdf-link" href="{{ pdf_url }}" target="_blank">⬇ Download Current PDF</a>
+
+<form id="studio-form" style="margin-top:20px;">
+
+  <!-- Global settings -->
+  <div class="card">
+    <h3 style="margin-top:0;">📘 Book Settings</h3>
+
+    <label>Title</label>
+    <input type="text" name="topic" id="s-topic" value="{{ draft.topic }}">
+
+    <div class="grid-2">
+      <div>
+        <label>Template</label>
+        <select name="template" id="s-template">
+          {% for t in templates %}
+            <option value="{{ t }}" {% if t == draft.template %}selected{% endif %}>{{ t | capitalize }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Color Palette</label>
+        <select name="palette" id="s-palette">
+          {% for key, val in palettes.items() %}
+            <option value="{{ key }}" {% if key == draft.palette %}selected{% endif %}>{{ val.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
+      <input type="checkbox" name="hide_pollinations_watermark" id="s-hide-wm" value="1"
+             {% if draft.hide_pollinations_watermark %}checked{% endif %} style="width:auto;">
+      Hide "pollinations.ai" watermark from AI-generated images
+    </label>
+
+    <label>Apna Custom Watermark / Branding Text (optional — har chapter ke end mein chhota sa dikhega)</label>
+    <input type="text" name="watermark_text" id="s-wm-text" value="{{ draft.watermark_text }}" placeholder="e.g. © PillaArt 2026">
+  </div>
+
+  <!-- Per-chapter editing -->
+  {% for ch in draft.chapters %}
+  <div class="card">
+    <h3 style="color:{{ palettes[draft.palette].hex }};">{{ loop.index }}.
+      <input type="text" name="title_{{ loop.index0 }}" value="{{ ch.title }}" style="display:inline-block; width:auto; min-width:60%;">
+    </h3>
+
+    {% if ch.image_url %}
+      <img src="{{ ch.image_url }}" alt="chapter image">
+    {% else %}
+      <p style="color:#666; font-style:italic;">(Is chapter ka image hataya gaya hai)</p>
+    {% endif %}
+
+    <div class="inline-form">
+      <form action="{{ url_for('studio_regenerate_image', draft_id=draft_id, idx=loop.index0) }}" method="post" style="display:inline;">
+        <button type="submit" class="btn-secondary">🔁 Regenerate</button>
+      </form>
+      <form action="{{ url_for('studio_remove_image', draft_id=draft_id, idx=loop.index0) }}" method="post" style="display:inline;">
+        <button type="submit" class="btn-secondary">🗑 Remove Image</button>
+      </form>
+    </div>
+
+    <form class="inline-form" action="{{ url_for('studio_update_prompt', draft_id=draft_id, idx=loop.index0) }}" method="post">
+      <input class="small-input" type="text" name="image_prompt" value="{{ ch.image_prompt }}">
+      <button type="submit" class="btn-secondary">Update Prompt</button>
+    </form>
+
+    <form class="inline-form" action="{{ url_for('studio_upload_image', draft_id=draft_id, idx=loop.index0) }}" method="post" enctype="multipart/form-data">
+      <input type="file" name="image_file" accept="image/*">
+      <button type="submit" class="btn-secondary">⬆ Upload Apni Image</button>
+    </form>
+
+    <label style="margin-top:14px;">Chapter Text</label>
+    <textarea name="content_{{ loop.index0 }}" style="min-height:160px;">{{ ch.content }}</textarea>
+  </div>
+  {% endfor %}
+
+  <button type="submit" id="save-btn" class="btn" style="width:100%; text-align:center; font-size:1.05rem;">
+    💾 Save & Update PDF
+  </button>
+</form>
+
+<div id="save-status" style="margin-top:14px;"></div>
+
+<script>
+  const form = document.getElementById("studio-form");
+  const saveBtn = document.getElementById("save-btn");
+  const statusBox = document.getElementById("save-status");
+  const pdfLink = document.getElementById("current-pdf-link");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    saveBtn.disabled = true;
+    saveBtn.textContent = "⏳ Saving & rebuilding PDF...";
+    statusBox.innerHTML = "";
+
+    try {
+      const fd = new FormData(form);
+      // checkbox sends nothing when unchecked — make that explicit
+      if (!document.getElementById("s-hide-wm").checked) fd.set("hide_pollinations_watermark", "0");
+
+      const res = await fetch("{{ url_for('studio_save', draft_id=draft_id) }}", { method: "POST", body: fd });
+      const data = await res.json();
+
+      if (data.status === "ok") {
+        pdfLink.href = data.download_url + "?t=" + Date.now();
+        statusBox.innerHTML = `<div class="msg msg-bot">✅ Saved! <a class="btn" href="${pdfLink.href}" target="_blank">⬇ Download Updated PDF</a></div>`;
+      } else {
+        statusBox.innerHTML = `<div class="msg msg-bot msg-error">❌ ${data.message || "Save failed, try again."}</div>`;
+      }
+    } catch (err) {
+      statusBox.innerHTML = `<div class="msg msg-bot msg-error">❌ Network error: ${err.message}</div>`;
+    }
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = "💾 Save & Update PDF";
+  });
+</script>
+{% endblock %}
