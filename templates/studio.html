@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+{% block title %}Customize — {{ draft.topic }}{% endblock %}
+{% block content %}
+
+<h2>✏️ Customize Studio</h2>
+<p style="color:#999;">Text, images, colors, template aur watermark — sab yahin edit karo. Save karte hi PDF dobara ban jayegi.</p>
+
+<a class="btn btn-secondary" id="current-pdf-link" href="{{ pdf_url }}" target="_blank">⬇ Download Current PDF</a>
+
+<!-- Chat-based editing: type in ANY language, PillaArt figures out the edit and rebuilds the PDF -->
+<div class="card" style="margin-top:20px;">
+  <h3 style="margin-top:0;">💬 Chat Se Edit Karo</h3>
+  <p style="color:#999; font-size:0.85rem; margin-top:-8px;">
+    Kisi bhi language mein likho — jaise "chapter 2 ka naam X kar do", "color purple kar do", "ek naya page add karo"...
+  </p>
+
+  <div id="chat-log" class="chat-log"></div>
+
+  <div class="inline-form" style="margin-top:10px;">
+    <input type="text" id="chat-input" class="small-input" placeholder="e.g. isko dark theme mein badal do...">
+    <button type="button" id="chat-send-btn" class="btn" style="margin-top:0;">➜ Send</button>
+  </div>
+</div>
+
+<form id="studio-form" style="margin-top:20px;">
+
+  <!-- Global settings -->
+  <div class="card">
+    <h3 style="margin-top:0;">📘 Book Settings</h3>
+
+    <label>Title</label>
+    <input type="text" name="topic" id="s-topic" value="{{ draft.topic }}">
+
+    <div class="grid-2">
+      <div>
+        <label>Template</label>
+        <select name="template" id="s-template">
+          {% for t in templates %}
+            <option value="{{ t }}" {% if t == draft.template %}selected{% endif %}>{{ t | capitalize }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Color Palette</label>
+        <select name="palette" id="s-palette">
+          {% for key, val in palettes.items() %}
+            <option value="{{ key }}" {% if key == draft.palette %}selected{% endif %}>{{ val.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <label style="display:flex; align-items:center; gap:8px; margin-top:16px;">
+      <input type="checkbox" name="hide_pollinations_watermark" id="s-hide-wm" value="1"
+             {% if draft.hide_pollinations_watermark %}checked{% endif %} style="width:auto;">
+      Hide "pollinations.ai" watermark from AI-generated images
+    </label>
+
+    <label>Apna Custom Watermark / Branding Text (optional — har chapter ke end mein chhota sa dikhega)</label>
+    <input type="text" name="watermark_text" id="s-wm-text" value="{{ draft.watermark_text }}" placeholder="e.g. © PillaArt 2026">
+  </div>
+
+  <!-- Per-page editing. Note: the small action buttons below (regenerate/upload/delete/add)
+       are plain buttons wired via JS fetch() — NOT nested <form> tags — because a <form>
+       cannot legally contain another <form>, and this whole block sits inside #studio-form. -->
+  {% for ch in draft.chapters %}
+  <div class="card" data-page-index="{{ loop.index0 }}">
+    <h3 style="color:{{ palettes[draft.palette].hex }};">{{ loop.index }}.
+      <input type="text" name="title_{{ loop.index0 }}" value="{{ ch.title }}" style="display:inline-block; width:auto; min-width:60%;">
+    </h3>
+
+    <div class="page-image-box">
+      {% if ch.image_url %}
+        <img src="{{ ch.image_url }}" alt="page image">
+      {% else %}
+        <p style="color:#666; font-style:italic;">(Is page par abhi koi image nahi hai)</p>
+      {% endif %}
+    </div>
+
+    <div class="inline-form">
+      <button type="button" class="btn-secondary" onclick="postAction('{{ url_for('studio_regenerate_image', draft_id=draft_id, idx=loop.index0) }}')">🔁 Regenerate</button>
+      <button type="button" class="btn-secondary" onclick="postAction('{{ url_for('studio_remove_image', draft_id=draft_id, idx=loop.index0) }}')">🗑 Remove Image</button>
+      {% if draft.chapters|length > 1 %}
+      <button type="button" class="btn-secondary" style="color:#fca5a5;"
+              onclick="if(confirm('Ye poora page delete karna hai?')) postAction('{{ url_for('studio_delete_page', draft_id=draft_id, idx=loop.index0) }}')">
+        🗑 Delete This Page
+      </button>
+      {% endif %}
+    </div>
+
+    <div class="inline-form">
+      <input class="small-input" type="text" id="prompt-{{ loop.index0 }}" value="{{ ch.image_prompt }}" placeholder="AI image prompt">
+      <button type="button" class="btn-secondary"
+              onclick="postPrompt('{{ url_for('studio_update_prompt', draft_id=draft_id, idx=loop.index0) }}', 'prompt-{{ loop.index0 }}')">
+        Update Prompt
+      </button>
+    </div>
+
+    <div class="inline-form">
+      <input type="file" id="file-{{ loop.index0 }}" accept="image/*">
+      <button type="button" class="btn-secondary"
+              onclick="postUpload('{{ url_for('studio_upload_image', draft_id=draft_id, idx=loop.index0) }}', 'file-{{ loop.index0 }}')">
+        ⬆ Apni Storage Se Upload Karo
+      </button>
+    </div>
+
+    <label style="margin-top:14px;">Page Text</label>
+    <textarea name="content_{{ loop.index0 }}" style="min-height:160px;">{{ ch.content }}</textarea>
+  </div>
+  {% endfor %}
+
+  <button type="submit" id="save-btn" class="btn" style="width:100%; text-align:center; font-size:1.05rem;">
+    💾 Save & Update PDF
+  </button>
+</form>
+
+<button type="button" class="btn btn-secondary" style="width:100%; text-align:center; margin-top:10px;"
+        onclick="postAction('{{ url_for('studio_add_page', draft_id=draft_id) }}')">
+  ➕ Add New Page
+</button>
+
+<div id="save-status" style="margin-top:14px;"></div>
+
+<script>
+  // ---------- Chat-based editing (any language) ----------
+  const chatLog = document.getElementById("chat-log");
+  const chatInput = document.getElementById("chat-input");
+  const chatSendBtn = document.getElementById("chat-send-btn");
+
+  function addChatBubble(text, cls) {
+    const div = document.createElement("div");
+    div.className = "msg " + cls;
+    div.textContent = text;
+    chatLog.appendChild(div);
+    chatLog.scrollTop = chatLog.scrollHeight;
+    return div;
+  }
+
+  async function sendChatEdit() {
+    const message = chatInput.value.trim();
+    if (!message) return;
+
+    addChatBubble(message, "msg-user");
+    chatInput.value = "";
+    chatSendBtn.disabled = true;
+    const loading = addChatBubble("⏳ Soch raha hoon...", "msg-bot msg-loading");
+
+    try {
+      const fd = new FormData();
+      fd.append("message", message);
+      const res = await fetch("{{ url_for('studio_chat_edit', draft_id=draft_id) }}", { method: "POST", body: fd });
+      const data = await res.json();
+
+      loading.remove();
+
+      if (data.status === "ok") {
+        addChatBubble(data.reply, "msg-bot");
+        if (data.changed) {
+          addChatBubble("🔄 Page reload ho raha hai taaki changes dikhein...", "msg-bot msg-loading");
+          setTimeout(() => window.location.reload(), 1200);
+        }
+      } else {
+        addChatBubble("❌ " + (data.message || "Kuch gadbad ho gayi."), "msg-bot msg-error");
+      }
+    } catch (err) {
+      loading.remove();
+      addChatBubble("❌ Network error: " + err.message, "msg-bot msg-error");
+    }
+
+    chatSendBtn.disabled = false;
+  }
+
+  chatSendBtn.addEventListener("click", sendChatEdit);
+  chatInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); sendChatEdit(); }
+  });
+
+  // Simple redirect-style action (regenerate / remove image / delete page / add page):
+  // the server does the change and the page just reloads to show the new state.
+  function postAction(url) {
+    fetch(url, { method: "POST" }).then(() => window.location.reload());
+  }
+
+  // Posts a single text field (image prompt) to its own endpoint.
+  function postPrompt(url, inputId) {
+    const fd = new FormData();
+    fd.append("image_prompt", document.getElementById(inputId).value);
+    fetch(url, { method: "POST", body: fd }).then(() => window.location.reload());
+  }
+
+  // Posts a file upload (user's own photo from phone storage) to its own endpoint.
+  function postUpload(url, fileInputId) {
+    const fileInput = document.getElementById(fileInputId);
+    if (!fileInput.files.length) { alert("Pehle ek image chuno."); return; }
+    const fd = new FormData();
+    fd.append("image_file", fileInput.files[0]);
+    fetch(url, { method: "POST", body: fd }).then(() => window.location.reload());
+  }
+
+  // Main Save & Update PDF — batches title/content/settings edits and rebuilds the PDF.
+  const form = document.getElementById("studio-form");
+  const saveBtn = document.getElementById("save-btn");
+  const statusBox = document.getElementById("save-status");
+  const pdfLink = document.getElementById("current-pdf-link");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    saveBtn.disabled = true;
+    saveBtn.textContent = "⏳ Saving & rebuilding PDF...";
+    statusBox.innerHTML = "";
+
+    try {
+      const fd = new FormData(form);
+      if (!document.getElementById("s-hide-wm").checked) fd.set("hide_pollinations_watermark", "0");
+
+      const res = await fetch("{{ url_for('studio_save', draft_id=draft_id) }}", { method: "POST", body: fd });
+      const data = await res.json();
+
+      if (data.status === "ok") {
+        pdfLink.href = data.download_url + "?t=" + Date.now();
+        statusBox.innerHTML = `<div class="msg msg-bot">✅ Saved! <a class="btn" href="${pdfLink.href}" target="_blank">⬇ Download Updated PDF</a></div>`;
+      } else {
+        statusBox.innerHTML = `<div class="msg msg-bot msg-error">❌ ${data.message || "Save failed, try again."}</div>`;
+      }
+    } catch (err) {
+      statusBox.innerHTML = `<div class="msg msg-bot msg-error">❌ Network error: ${err.message}</div>`;
+    }
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = "💾 Save & Update PDF";
+  });
+</script>
+{% endblock %}
