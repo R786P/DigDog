@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+{% block title %}PillaArt{% endblock %}
+{% block content %}
+
+<div id="chat-area" class="chat-area">
+  <div class="empty-state" id="empty-state">
+    <img src="{{ url_for('static', filename='icons/icon-192.png') }}" class="empty-icon" alt="PillaArt">
+    <h2>Mujhse baat karo, kisi bhi language mein</h2>
+    <p>Jaise mujhse normally baat karte ho — eBook banani ho ya kuch poochna ho, bas likho.</p>
+  </div>
+</div>
+
+<form id="composer-form" autocomplete="off">
+  <div id="options-panel" class="options-panel">
+    <div>
+      <label>Language</label>
+      <select name="language" id="opt-language">
+        {% for key, val in languages.items() %}
+          <option value="{{ key }}" {% if key=='hinglish' %}selected{% endif %}>{{ val }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="grid-2">
+      <div>
+        <label>Template</label>
+        <select name="template" id="opt-template">
+          <option value="minimal">Minimal</option>
+          <option value="magazine">Magazine Style</option>
+          <option value="storybook">Storybook</option>
+          <option value="coloring">Coloring Book</option>
+          <option value="drawing">Drawing Book</option>
+          <option value="report">Professional Report</option>
+        </select>
+      </div>
+      <div>
+        <label>Color Palette</label>
+        <select name="palette" id="opt-palette">
+          {% for key, val in palettes.items() %}
+            <option value="{{ key }}">{{ val.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <label>Image Style</label>
+    <select name="image_style" id="opt-image_style">
+      {% for key, val in styles.items() %}
+        <option value="{{ key }}">{{ key | capitalize }} — {{ val }}</option>
+      {% endfor %}
+    </select>
+
+    <div class="divider-line"></div>
+
+    <label>📤 Ya Apni Images Se Seedha Book Banao (AI nahi, sirf upload)</label>
+    <p style="color:#888; font-size:0.8rem; margin:-4px 0 8px;">
+      Canva ya kisi bhi AI se khud banayi images select karo — ek se zyada chun sakte ho. Koi topic likhne ki zaroorat nahi.
+    </p>
+    <input type="file" id="own-images-input" accept="image/*" multiple>
+    <button type="button" id="own-images-btn" class="btn btn-secondary" style="width:100%; text-align:center; margin-top:8px;">
+      📘 In Images Se PDF Book Banao
+    </button>
+  </div>
+  <input type="hidden" name="image_style_locked" id="image_style_locked" value="0">
+  <!-- set to 1 only when the user manually picks an Image Style — otherwise the
+       backend is free to auto-detect "coloring book" intent from the topic text -->
+
+
+  <div class="composer composer-fixed">
+    <button type="button" id="plus-btn" class="plus-btn" title="More options">
+      +
+      <span id="opt-dot" class="opt-dot" style="display:none;"></span>
+    </button>
+    <input
+      type="text"
+      id="topic-input"
+      class="composer-input"
+      placeholder="Kuch bhi likho — baat karo ya eBook banao...">
+    <button type="submit" id="send-btn" class="send-btn" title="Generate">&#10148;</button>
+  </div>
+</form>
+
+<script>
+  const plusBtn = document.getElementById("plus-btn");
+  const panel = document.getElementById("options-panel");
+  const dot = document.getElementById("opt-dot");
+  const chatArea = document.getElementById("chat-area");
+  const emptyState = document.getElementById("empty-state");
+  const form = document.getElementById("composer-form");
+  const topicInput = document.getElementById("topic-input");
+  const sendBtn = document.getElementById("send-btn");
+
+  const dock = document.getElementById("composer-form");
+  function fitChatPadding() {
+    chatArea.style.paddingBottom = (dock.offsetHeight + 20) + "px";
+  }
+  window.addEventListener("load", fitChatPadding);
+  window.addEventListener("resize", fitChatPadding);
+
+  plusBtn.addEventListener("click", () => {
+    panel.classList.toggle("open");
+    setTimeout(fitChatPadding, 260); // after the panel's open transition finishes
+  });
+
+  const defaults = { language: "hinglish", template: "minimal", palette: "warm", image_style: "flat" };
+  const watched = ["opt-language", "opt-template", "opt-palette", "opt-image_style"];
+  function refreshDot() {
+    const changed = watched.some(id => {
+      const el = document.getElementById(id);
+      const key = id.replace("opt-", "");
+      return el.value !== defaults[key];
+    });
+    dot.style.display = changed ? "block" : "none";
+  }
+  watched.forEach(id => document.getElementById(id).addEventListener("change", refreshDot));
+
+  // If the user manually picks an Image Style, respect it exactly — don't let
+  // the backend's "coloring book" auto-detection override their explicit choice.
+  document.getElementById("opt-image_style").addEventListener("change", () => {
+    document.getElementById("image_style_locked").value = "1";
+  });
+
+  function addBubble(html, cls) {
+    const div = document.createElement("div");
+    div.className = "msg " + cls;
+    div.innerHTML = html;
+    chatArea.appendChild(div);
+    chatArea.scrollTop = chatArea.scrollHeight;
+    return div;
+  }
+
+  // ---------- Active book (so follow-up messages like "color badal do" know which book) ----------
+  const CURRENT_DRAFT_KEY = "pillaart_current_draft_id";
+  function getCurrentDraftId() { return localStorage.getItem(CURRENT_DRAFT_KEY) || ""; }
+  function setCurrentDraftId(id) { localStorage.setItem(CURRENT_DRAFT_KEY, id || ""); }
+
+  // ---------- History (saved on this phone/browser via localStorage) ----------
+  const HISTORY_KEY = "pillaart_history";
+
+  function getHistory() {
+    try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; }
+    catch (e) { return []; }
+  }
+
+  function saveToHistory(entry) {
+    const hist = getHistory();
+    hist.unshift(entry); // newest first
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(hist.slice(0, 30))); // keep last 30
+  }
+
+  function resultBubbleHtml(entry) {
+    return `✅ <strong>${entry.title}</strong> (${entry.chapters} chapters)<br>
+            <a class="btn" href="${entry.download_url}" download target="_blank">⬇ Download PDF</a>
+            <a class="btn btn-secondary" href="${entry.edit_url}" target="_blank">✏️ Customize</a>`;
+  }
+
+  function renderHistory() {
+    const hist = getHistory();
+    if (hist.length === 0) return;
+    if (emptyState) emptyState.style.display = "none";
+
+    const label = document.createElement("div");
+    label.style.cssText = "color:#666; font-size:0.8rem; text-align:center; margin:4px 0 14px;";
+    label.textContent = "— Pehle ki eBooks —";
+    chatArea.appendChild(label);
+
+    // oldest-first within the history block so it reads top-to-bottom like a chat
+    [...hist].reverse().forEach(entry => {
+      addBubble(`<strong>${entry.title}</strong>`, "msg-user");
+      addBubble(resultBubbleHtml(entry), "msg-bot");
+    });
+  }
+  renderHistory();
+
+  // ---------- Tappable quick-reply options (shown when the assistant asks a clarifying question) ----------
+  function renderOptions(options) {
+    if (!options || options.length === 0) return;
+    const wrap = document.createElement("div");
+    wrap.className = "options-row";
+    options.forEach(opt => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "option-chip";
+      btn.textContent = opt;
+      btn.addEventListener("click", () => {
+        wrap.querySelectorAll("button").forEach(b => b.disabled = true); // lock this set once tapped
+        sendMessage(opt);
+      });
+      wrap.appendChild(btn);
+    });
+    chatArea.appendChild(wrap);
+    chatArea.scrollTop = chatArea.scrollHeight;
+  }
+
+  // ---------- Core: one message in, one natural response out ----------
+  async function sendMessage(messageText) {
+    const text = messageText.trim();
+    if (!text) return;
+
+    if (emptyState) emptyState.style.display = "none";
+    addBubble(text.replace(/</g, "&lt;"), "msg-user");
+    const loading = addBubble(`⏳ Soch raha hoon...`, "msg-bot msg-loading");
+
+    const fd = new FormData();
+    fd.append("message", text);
+    fd.append("draft_id", getCurrentDraftId());
+    fd.append("language", document.getElementById("opt-language").value);
+    fd.append("template", document.getElementById("opt-template").value);
+    fd.append("palette", document.getElementById("opt-palette").value);
+    fd.append("image_style", document.getElementById("opt-image_style").value);
+    fd.append("image_style_locked", document.getElementById("image_style_locked").value);
+
+    sendBtn.disabled = true;
+    plusBtn.disabled = true;
+    topicInput.readOnly = true;
+
+    try {
+      const res = await fetch("{{ url_for('chat') }}", { method: "POST", body: fd });
+      const data = await res.json();
+      loading.remove();
+
+      if (data.status !== "ok") {
+        addBubble(`❌ ${data.message || "Kuch gadbad ho gayi, dobara try karo."}`, "msg-bot msg-error");
+      } else if (data.kind === "generate_book") {
+        addBubble(data.reply, "msg-bot");
+        addBubble(resultBubbleHtml(data), "msg-bot");
+        setCurrentDraftId(data.draft_id);
+        saveToHistory({
+          title: data.title, chapters: data.chapters,
+          download_url: data.download_url, edit_url: data.edit_url, time: Date.now(),
+        });
+      } else if (data.kind === "edit") {
+        let html = data.reply;
+        if (data.changed && data.download_url) {
+          html += `<br><a class="btn" href="${data.download_url}?t=${Date.now()}" download target="_blank">⬇ Download Updated PDF</a>`;
+        }
+        addBubble(html, "msg-bot");
+      } else {
+        // plain chat — maybe with tappable clarifying options
+        addBubble(data.reply, "msg-bot");
+        renderOptions(data.options);
+      }
+    } catch (err) {
+      loading.remove();
+      addBubble(`❌ Network error: ${err.message}`, "msg-bot msg-error");
+    }
+
+    sendBtn.disabled = false;
+    plusBtn.disabled = false;
+    topicInput.readOnly = false;
+    topicInput.value = "";
+    panel.classList.remove("open");
+    chatArea.scrollTop = chatArea.scrollHeight;
+  }
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    sendMessage(topicInput.value);
+  });
+
+  // ---------- Build straight from the user's own images (no AI generation at all) ----------
+  const ownImagesInput = document.getElementById("own-images-input");
+  const ownImagesBtn = document.getElementById("own-images-btn");
+
+  ownImagesBtn.addEventListener("click", async () => {
+    const files = ownImagesInput.files;
+    if (!files || files.length === 0) {
+      alert("Pehle ek ya zyada images chuno.");
+      return;
+    }
+
+    const title = topicInput.value.trim() || "My Book";
+    if (emptyState) emptyState.style.display = "none";
+    addBubble(`<strong>${title}</strong> (${files.length} apni images se)`, "msg-user");
+    const loading = addBubble(`⏳ Images se PDF ban rahi hai...`, "msg-bot msg-loading");
+
+    ownImagesBtn.disabled = true;
+
+    try {
+      const fd = new FormData();
+      fd.append("topic", title);
+      fd.append("template", document.getElementById("opt-template").value);
+      fd.append("palette", document.getElementById("opt-palette").value);
+      for (const f of files) fd.append("images", f);
+
+      const res = await fetch("{{ url_for('build_from_images') }}", { method: "POST", body: fd });
+      const data = await res.json();
+
+      loading.remove();
+
+      if (data.status === "ok") {
+        addBubble(resultBubbleHtml(data), "msg-bot");
+        setCurrentDraftId(data.draft_id || "");
+        saveToHistory({
+          title: data.title,
+          chapters: data.chapters,
+          download_url: data.download_url,
+          edit_url: data.edit_url,
+          time: Date.now(),
+        });
+      } else {
+        addBubble(`❌ Error: ${data.message || "Kuch gadbad ho gayi."}`, "msg-bot msg-error");
+      }
+    } catch (err) {
+      loading.remove();
+      addBubble(`❌ Network error: ${err.message}`, "msg-bot msg-error");
+    }
+
+    ownImagesBtn.disabled = false;
+    ownImagesInput.value = "";
+    topicInput.value = "";
+    panel.classList.remove("open");
+  });
+</script>
+{% endblock %}
